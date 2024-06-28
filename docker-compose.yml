@@ -1,18 +1,6 @@
-version: '3'
-
-networks:
-  gitlab:
-    driver: bridge
-
-secrets:
-  traefik.certificate:
-    file: ./secrets/gitlab-test.lab.lan-crt.pem
-  traefik.key:
-    file: ./secrets/gitlab-test.lab.lan-key.pem
-
 services:
   git:
-    image: 'gitlab/gitlab-ce:latest'
+    image: 'gitlab/gitlab-ce:17.1.0-ce.0'
     restart: always
     hostname: 'gitlab-test.lab.lan'
     container_name: gitlab-ce
@@ -22,59 +10,48 @@ services:
         letsencrypt['enabled'] = false
         nginx['listen_https'] = false
         nginx['listen_port'] = 80
+        gitlab_rails['ldap_enabled'] = true
+        gitlab_rails['ldap_servers'] = {
+        'main' => {
+          'label' => 'LAB AD',
+          'hosts' => [['srvad1.lab.lan', 636], ['srvad2.lab.lan', 636]],
+          'port' => 636,
+          'uid' => 'sAMAccountName',
+          'encryption' => 'simple_tls',
+          'verify_certificates' => true,
+          'timeout' => 10,
+          'bind_dn' => 'CN=ro_gitlab,OU=SERVICES,OU=ACCOUNTS,OU=LAB,DC=lab,DC=lan',
+          'password' => 'strong_pass',
+          'active_directory' => true,
+          'base' => 'DC=lab,DC=lan',
+          'block_auto_created_users' => false,
+          'allow_username_or_email_login' => true,
+          'lowercase_usernames' => true,
+          'user_filter' => '(&(objectClass=user)(memberOf:1.2.840.113556.1.4.1941:=CN=gitlab_users,OU=GROUPS,OU=LAB,DC=lab,DC=lan))',
+          'tls_options' => {
+              'ca_file' => '/etc/gitlab/trusted-certs/CA-cert.pem',
+              'ssl_version' => 'TLSv1_2'
+            }
+           }
+         }
+          
         # Add any other gitlab.rb configuration here, each on its own line
-   # ports:
-      #- '80:80'
-      #- '443:443'
-      #- '22:22'
     volumes:
-      - ./config:/etc/gitlab'
-      - ./logs:/var/log/gitlab'
-      - ./data:/var/opt/gitlab'
-    shm_size: '256m'
+      - ./config:/etc/gitlab
+      - ./config/trusted-certs/ACR-proxy.pem:/etc/gitlab/trusted-certs/CA-certs.pem
+      - ./logs:/var/log/gitlab
+      - ./data:/var/opt/gitlab
+    shm_size: '8192m'
     networks:
-      - gitlab
-    
+      - traefik-global_traefiknet
     labels:
-    # permet a traefik d'avoir des instructions pour ce service
       - "traefik.enable=true"
       - "traefik.http.routers.git.rule=Host(`gitlab-test.lab.lan`)"
-      - "traefik.http.routers.git.service=git"
-      - "traefik.http.routers.git.entrypoints=https"
+      - "traefik.http.routers.git.entrypoints=websecure"
+      - "traefik.http.routers.git.tls=true"
       - "traefik.http.services.git.loadbalancer.server.port=80"
-      - "traefik.docker.network=gitlab"
+      - "traefik.docker.network=traefik-global_traefiknet"
 
-
-  # Image Traefik officielle: https://hub.docker.com/_/traefik
-  traefik:
-    image: traefik:2.10.5
-    command:
-      # decommenter pour acceder a la web UI traefik
-      #- --api.insecure=true
-      # dossier de configurations statique
-      - --providers.file.directory=/config
-      # indique d'ecouter docker
-      - --providers.docker
-      # points d'entree
-      - --entryPoints.web.address=:80
-      - --entryPoints.https.address=:443
-      - --entrypoints.https.http.tls=true
-    networks:
-      - gitlab
-    ports:
-      # ports d'ecoute du proxy
-      - 443:443/tcp
-      # Web UI (utiliser avec --api.insecure=true)
-      #- 8080:8080/tcp
-    volumes:
-      # pour que trafic soit au courant des changements dans Docker
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./traefik:/config:ro
-    secrets:
-      - source: traefik.certificate
-        target: /certs/gitlab-test.lab.lan-crt.pem
-      - source: traefik.key
-        target: /certs/gitlab-test.lab.lan-key.pem
 
     #gitlab-runner:
     #image: gitlab/gitlab-runner:alpine
@@ -88,3 +65,6 @@ services:
     #networks:
     #  - gitlab
 
+networks:
+  traefik-global_traefiknet:
+    external: true
