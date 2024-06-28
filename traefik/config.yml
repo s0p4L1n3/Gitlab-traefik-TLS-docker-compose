@@ -1,4 +1,0 @@
-tls:
-  certificates:
-    - certFile: /certs/gitlab-test.lab.lan-crt.pem
-      keyFile: /certs/gitlab-test.lab.lan-key.pem
